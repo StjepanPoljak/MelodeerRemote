@@ -1,0 +1,36 @@
+name: Docker Build
+
+on: [push]  # Trigger the workflow on every push event
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Install apt dependencies
+      run: sudo apt install -y curl unzip zip
+
+    - name: Install sdkman dependencies
+      run: |
+        curl -s "https://get.sdkman.io" | bash
+        source "$HOME/.sdkman/bin/sdkman-init.sh"
+        sdk install java
+        sdk install kotlin
+        sdk install gradle
+
+    - name: Install Android SDK tools
+      run: |
+        mkdir -p /opt/android-sdk
+        curl -o /tmp/sdk-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip
+        unzip -q /tmp/sdk-tools.zip -d /opt/android-sdk
+        rm /tmp/sdk-tools.zip
+
+    - name: Accept licenses and build
+      run: |
+        PATH=$PATH:/opt/android-sdk/cmdline-tools/bin
+        source "$HOME/.sdkman/bin/sdkman-init.sh"
+        yes | sdkmanager --licenses --sdk_root=/opt/android-sdk
+        (cd client && gradle build)
