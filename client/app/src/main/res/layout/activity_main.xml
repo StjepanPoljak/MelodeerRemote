@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+	xmlns:tools="http://schemas.android.com/tools"
+	android:layout_width="match_parent"
+	android:layout_height="match_parent"
+	tools:context=".MainActivity">
+
+	<ListView
+		android:id="@+id/itemListView"
+		android:layout_width="match_parent"
+		android:layout_height="match_parent"
+		android:layout_marginTop="16dp"
+		android:layout_above="@id/controlLayout"
+		android:layout_alignParentTop="true" />
+
+	<LinearLayout
+		android:id="@+id/controlLayout"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:orientation="horizontal"
+		android:layout_above="@id/stateTextView" >
+
+		<Button
+			android:id="@+id/playButton"
+			android:layout_width="0dp"
+			android:layout_weight="1"
+			android:layout_height="wrap_content"
+			android:text="Play"
+			android:layout_marginStart="16dp"
+			android:layout_marginLeft="16dp"
+			android:layout_marginTop="8dp"
+			android:layout_marginBottom="8dp" />
+
+		<Button
+			android:id="@+id/stopButton"
+			android:layout_width="0dp"
+			android:layout_height="wrap_content"
+			android:text="Stop"
+			android:layout_weight="1"
+			android:layout_marginRight="16dp"
+			android:layout_marginTop="8dp"
+			android:layout_marginBottom="8dp" />
+
+		<Button
+			android:id="@+id/decVolButton"
+			android:layout_width="0dp"
+			android:layout_height="wrap_content"
+			android:layout_weight="1"
+			android:text="-"
+			android:layout_marginRight="16dp"
+			android:layout_marginTop="8dp"
+			android:layout_marginBottom="8dp" />
+
+		<Button
+			android:id="@+id/incVolButton"
+			android:layout_width="0dp"
+			android:layout_height="wrap_content"
+			android:layout_weight="1"
+			android:text="+"
+			android:layout_marginEnd="16dp"
+			android:layout_marginRight="16dp"
+			android:layout_marginTop="8dp"
+			android:layout_marginBottom="8dp" />
+
+	</LinearLayout>
+
+	<TextView
+		android:id="@+id/stateTextView"
+		android:layout_width="match_parent"
+		android:layout_height="24dp"
+		android:text="Initializing..."
+		android:textSize="12sp"
+		android:layout_alignParentBottom="true" />
+
+	<Button
+		android:id="@+id/retryButton"
+		android:layout_width="wrap_content"
+		android:layout_height="wrap_content"
+		android:text="Retry"
+		android:layout_centerInParent="true"
+		android:visibility="gone" />
+
+	<View
+	        android:id="@+id/greyOverlay"
+	        android:layout_width="match_parent"
+	        android:layout_height="match_parent"
+		android:background="#80CCCCCC" />
+
+	<ProgressBar
+		android:id="@+id/progressBar"
+		android:layout_width="wrap_content"
+		android:layout_height="wrap_content"
+		android:layout_centerInParent="true"
+		android:visibility="gone"
+		android:indeterminate="true" />
+
+
+</RelativeLayout>

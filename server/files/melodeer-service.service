@@ -1,0 +1,11 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+
+<service-group>
+  <name replace-wildcards="yes">MelodeerService on %h</name>
+  <service>
+    <type>_melodeer-service._tcp</type>
+    <port>29486</port>
+  </service>
+</service-group>
+
