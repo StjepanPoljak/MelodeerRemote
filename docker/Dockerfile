@@ -18,4 +18,4 @@ ENV PATH=$PATH:${ANDROID_SDK_ROOT}/cmdline-tools/bin
 
 RUN bash -c "source \"\$HOME/.sdkman/bin/sdkman-init.sh\"; yes | sdkmanager --licenses --sdk_root=${ANDROID_SDK_ROOT}"
 
-ENTRYPOINT [ "/bin/bash", "-c", "gradle build" ]
+ENTRYPOINT [ "/bin/bash", "-c", "source ~/.sdkman/bin/sdkman-init.sh; $0 $@" ]

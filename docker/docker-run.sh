@@ -11,4 +11,4 @@ docker run -it --rm					\
 	-v "${GRADLE_CACHE}":/root/.gradle		\
 	-v android-sdk-cache:/opt/android-sdk		\
 	--workdir "${WORKDIR}"				\
-	android-build
+	android-build "${1:-gradle build}"
