@@ -1,0 +1,14 @@
+#!/usr/bin/expect -f
+
+spawn docker run -it -v "$env(TEMP_RASPIOS_IMG)":/sdcard/filesystem.img --network "$env(SIMULATOR_BRIDGE)" lukechilds/dockerpi:vm
+
+set timeout 10
+
+expect "raspberrypi login:"
+send "$env(RASPIOS_USR)\r"
+expect "Password:"
+send "$env(RASPIOS_PWD)\r"
+
+interact
+
+expect eof

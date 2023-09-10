@@ -1,0 +1,28 @@
+#!/usr/bin/expect -f
+
+spawn qemu-system-x86_64 -cpu host -enable-kvm -m 2048 -drive file=$env(ANDROID_X86_IMG),format=qcow2,index=0 -net nic -net bridge,br=$env(SIMULATOR_BRIDGE) -serial mon:stdio
+
+set timeout 30
+set prompt ":/android #"
+
+expect {
+	"DUMMY STRING" { exp_continue }
+	timeout {
+		expect -re "$prompt"
+		send "ip addr\r"
+		expect -re "$prompt"
+		send "ifconfig eth0 $env(ANDROID_IP) netmask $env(SIMULATOR_SUBNET_MASK)\r"
+		expect -re "$prompt"
+		send "ip rule add from all lookup main pref 0\r"
+		expect -re "$prompt"
+		send "busybox route add default gw $env(SIMULATOR_GATEWAY)\r"
+		expect -re "$prompt"
+		send "ndc resolver setnetdns 100 localdomain $env(SIMULATOR_GATEWAY)\r"
+		expect -re "$prompt"
+		send "exit\r"
+	}
+}
+
+interact
+
+expect eof
