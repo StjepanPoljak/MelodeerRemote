@@ -1,77 +1,198 @@
-#!/bin/sh
+#!/bin/sh -x
 
 SCRIPT_DIR="$(dirname "$(realpath $0)")"
 
 . "${SCRIPT_DIR}/simulator.conf"
 
-TEMP_RASPIOS_IMG="/tmp/${RASPIOS_IMG_NAME}"
-RASPIOS_IMG_MNT="/mnt/${RASPIOS_IMG_NAME}"
+RASPIOS_IMG_MNT="/mnt/${RASPIOS_IMG_DIR_BASENAME}"
+TEMP_RASPIOS_DIR="/tmp/${RASPIOS_IMG_DIR_BASENAME}"
 
-ANDROID_X86_IMG_MNT="/mnt/android-x86"
-ANDROID_X86_TEMP="/tmp/android-x86"
+KERNEL_IMG=kernel8.img
+RPI_DTB=bcm2710-rpi-3-b-plus.dtb
 
-xz -d raspios-img/2023-05-03-raspios-bullseye-armhf-lite.img.xz -v -e -T 0 -c > "${TEMP_RASPIOS_IMG}"
+log() {
+	echo "(i)" $@
+}
 
-sudo mkdir -p "${RASPIOS_IMG_MNT}"
+error() {
+	echo "(!)" $@
+	exit 1
+}
 
-sudo qemu-nbd -c /dev/nbd0 "${TEMP_RASPIOS_IMG}"
-sudo mount /dev/nbd0p1 "${RASPIOS_IMG_MNT}"
+mount_raspios_partition() {
 
-echo "${RASPIOS_USR}" | openssl passwd -6 -stdin		\
-		      | xargs -I{} echo "${RASPIOS_PWD}:{}"	\
-		      | sudo tee "${RASPIOS_IMG_MNT}/userconf.txt"
+	PART=""
 
-sudo umount "${RASPIOS_IMG_MNT}"
-sudo mount /dev/nbd0p2 "${RASPIOS_IMG_MNT}"
+	if [ "${1}" = "boot" ]; then
+		PART=p1
+	elif [ "${1}" = "root" ]; then
+		PART=p2
+	else
+		error "Invalid partition specified (available: root, boot)"
+	fi
 
-cat <<EOF | sudo tee -a "${RASPIOS_IMG_MNT}/etc/dhcpcd.conf"
-interface eth0
-static ip_address=${RASPIOS_IP}/${SIMULATOR_SUBNET}
-static routers=${SIMULATOR_GATEWAY}
-static domain_name_servers=${SIMULATOR_DNS}
-EOF
+	sudo mkdir -p "${RASPIOS_IMG_MNT}"
+	sudo qemu-nbd -c /dev/nbd0 "${RASPIOS_IMG}"
+	sudo mount /dev/nbd0${PART} "${RASPIOS_IMG_MNT}"
+}
 
-sudo umount "${RASPIOS_IMG_MNT}"
-sudo qemu-nbd -d /dev/nbd0
-sudo rmdir "${RASPIOS_IMG_MNT}"
+unmount_raspios() {
 
-# mkdir -p "${ANDROID_X86_TEMP}"
-# sudo mkdir -p "${ANDROID_X86_IMG_MNT}"
-# sudo qemu-nbd -c /dev/nbd0 "${ANDROID_X86_IMG}"
-# sudo mount /dev/nbd0p1 "${ANDROID_X86_IMG_MNT}"
+	sudo umount "${RASPIOS_IMG_MNT}"
+	sudo qemu-nbd -d /dev/nbd0
+	sudo rmdir "${RASPIOS_IMG_MNT}"
+}
 
-# ANDROID_X86_SRC="${ANDROID_X86_IMG_MNT}$(awk 'f { print; f = 0 } { if ($0 ~ /^title Android-x86 [^ ]*$/) { f = 1 } }' "${ANDROID_X86_IMG_MNT}/grub/menu.lst" | sed -n 's/^.*SRC=\([^ ]*\).*$/\1/p')"
+create_raspios_user() {
 
-# sudo umount "${ANDROID_X86_IMG_MNT}"
-# sudo qemu-nbd -d /dev/nbd0
+	echo "${RASPIOS_USR}" | openssl passwd -6 -stdin		\
+			      | xargs -I{} echo "${RASPIOS_PWD}:{}"	\
+			      | sudo tee "${RASPIOS_IMG_MNT}/userconf.txt"
+	sudo touch "${RASPIOS_IMG_MNT}/ssh"
+}
 
-sudo brctl addbr "${SIMULATOR_BRIDGE}"
-sudo brctl addif "${SIMULATOR_BRIDGE}" enp4s0f1
-sudo ip addr add "${SIMULATOR_GATEWAY}/${SIMULATOR_SUBNET}" dev "${SIMULATOR_BRIDGE}"
-sudo ip link set dev "${SIMULATOR_BRIDGE}" up
+configure_raspios_dhcp() {
 
-docker network create --driver bridge --subnet "${SIMULATOR_NETWORK}" --gateway "${SIMULATOR_GATEWAY}" -o "com.docker.network.bridge.name=${SIMULATOR_BRIDGE}" "${SIMULATOR_BRIDGE}"
+	cat <<-EOF | sudo tee -a "${RASPIOS_IMG_MNT}/etc/dhcpcd.conf"
+	interface eth0
+	static ip_address=${RASPIOS_IP}/${SIMULATOR_SUBNET}
+	static routers=${SIMULATOR_GATEWAY}
+	static domain_name_servers=${SIMULATOR_DNS}
+	EOF
+}
 
-#sudo qemu-system-x86_64 -cpu host -enable-kvm -m 2048 -drive file=/home/${USER}/android.img,format=qcow2,index=0 -net nic -net bridge,br=${SIMULATOR_BRIDGE} &
-#QEMU_PID=$!
+adjust_image_size() {
 
-export TEMP_RASPIOS_IMG
-export SIMULATOR_BRIDGE
-export RASPIOS_USR
-export RASPIOS_PWD
+	IMAGE_SIZE="$(qemu-img info --output json "${RASPIOS_IMG}"	\
+			| grep "virtual-size"				\
+			| awk '{print $2}'				\
+			| sed 's/,//')"
 
-./rpi-console.exp
-#docker run -it -v ${TEMP_RASPIOS_IMG}:/sdcard/filesystem.img --network "${SIMULATOR_BRIDGE}" lukechilds/dockerpi:vm
+	SIZE_2GIB="$(echo '2 * 1024^3' | bc)"
+	SIZE_2GIB_REMAINDER="$(echo "${IMAGE_SIZE} % ${SIZE_2GIB}" | bc)"
 
-sudo ip link del "${SIMULATOR_BRIDGE}"
-docker network rm "${SIMULATOR_BRIDGE}"
-#sudo kill ${QEMU_PID}
+	if [ "${SIZE_2GIB_REMAINDER}" -ne 0 ]; then
+		SIZE="$(echo "((${IMAGE_SIZE} / ${SIZE_2GIB}) + 1) * 2" | bc)"
+		qemu-img resize "${RASPIOS_IMG}" "${SIZE}G"
+	fi
+}
 
-# sudo qemu-nbd -c /dev/nbd0 "${ANDROID_X86_IMG}"
-# sudo mount /dev/nbd0p1 "${ANDROID_X86_IMG_MNT}"
-# sudo umount "${ANDROID_X86_IMG_MNT}"
-# sudo qemu-nbd -d /dev/nbd0
-# sudo rmdir "${ANDROID_X86_IMG_MNT}"
-# rm -rf "${ANDROID_X86_TEMP}"
+get_raspios_image() {
 
-rm -f "${TEMP_RASPIOS_IMG}"
+	[ -d "${TEMP_RASPIOS_DIR}" ] || mkdir -p "${TEMP_RASPIOS_DIR}"
+
+	mkdir -p "${TEMP_RASPIOS_DIR}"
+
+	if ! [ -e "${RASPIOS_IMG}" ]; then
+		[ -d "${RASPIOS_IMG_DIR}" ] || mkdir -p "${RASPIOS_IMG_DIR}"
+		curl "${RASPIOS_LINK}" -o "${RASPIOS_IMG}.xz"
+		xz -d "${RASPIOS_IMG}.xz" -v -e -T 0
+
+		mount_raspios_partition "boot"
+		create_raspios_user
+		cp "${RASPIOS_IMG_MNT}/${KERNEL_IMG}"		\
+		   "${RASPIOS_IMG_MNT}/${RPI_DTB}"		\
+		   "${RASPIOS_IMG_DIR}"
+		unmount_raspios
+
+		mount_raspios_partition "root"
+		#configure_raspios_dhcp
+		unmount_raspios
+
+		adjust_image_size
+
+		tar cSvf "${RASPIOS_IMG_NAME}.tar.xz" -C "${RASPIOS_IMG_DIR}" .
+
+		mv "${RASPIOS_IMG_NAME}.tar.xz" "${RASPIOS_IMG}.tar.xz"
+
+		mv "${RASPIOS_IMG}"				\
+		   "${RASPIOS_IMG_DIR}/${KERNEL_IMG}"		\
+		   "${RASPIOS_IMG_DIR}/${RPI_DTB}"		\
+		   "${TEMP_RASPIOS_DIR}"
+	else
+		log "Reusing image: \"${RASPIOS_IMG}.tar.xz\""
+
+		tar xSvf "${RASPIOS_IMG}.tar.xz" -C "${TEMP_RASPIOS_DIR}"
+	fi
+}
+
+create_network_bridge() {
+
+	sudo brctl addbr "${SIMULATOR_BRIDGE}"
+	sudo ip addr add "${SIMULATOR_GATEWAY}/${SIMULATOR_SUBNET}"	\
+		dev "${SIMULATOR_BRIDGE}"
+
+	docker network create --driver bridge				\
+		--subnet "192.168.150.0/24"				\
+		--gateway "192.168.150.1"				\
+		--aux-address "android-ip=192.168.150.3"		\
+		--aux-address "rpi-ip=192.168.150.4"			\
+		-o "com.docker.network.bridge.name=${SIMULATOR_BRIDGE}"	\
+		"${SIMULATOR_BRIDGE}"
+
+	sudo ip link set dev "${SIMULATOR_BRIDGE}" up
+}
+
+run_raspios_docker() {
+
+	IPTABLES="${SCRIPT_DIR}/iptables/xtables-legacy-multi"
+
+	KERNEL_CMDLINE="rw					\
+			earlyprintk				\
+			console=ttyAMA0,115200			\
+			dwc_otg.fiq_fsm_enable=0		\
+			root=/dev/mmcblk0p2			\
+			dwc_otg.lpm_enable=0			\
+			rootwait				\
+			panic=1					\
+			random.trust_cpu=on"
+
+	DOCKER_RASPIOS_IMG_DIR="/tmp/raspios-img"
+	DOCKER_RASPIOS_IMG="${DOCKER_RASPIOS_IMG_DIR}/${RASPIOS_IMG_NAME}"
+
+	RASPIOS_QEMU_COMM="
+	/tmp/xtables iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE;\
+	qemu-system-aarch64						\
+		-machine raspi3b					\
+		-cpu cortex-a72						\
+		-m 1G							\
+		-kernel \"${DOCKER_RASPIOS_IMG_DIR}/${KERNEL_IMG}\"	\
+		-append \"${KERNEL_CMDLINE}\"				\
+		-dtb \"${DOCKER_RASPIOS_IMG_DIR}/${RPI_DTB}\"		\
+		-drive file=\"${DOCKER_RASPIOS_IMG}\",format=raw	\
+		-device usb-net,netdev=net0				\
+		-netdev user,id=net0					\
+		-display none						\
+		-serial mon:stdio"
+
+	docker run -it -v "${RASPIOS_IMG_DIR}":/tmp/raspios-img		\
+		--network "${SIMULATOR_BRIDGE}"				\
+		--volume "${IPTABLES}":/tmp/xtables			\
+		--ip "${RASPIOS_CONTAINER_IP}"				\
+		--cap-add=NET_ADMIN					\
+		--entrypoint "/bin/sh"					\
+		--publish 5555:22					\
+		lukechilds/dockerpi:vm -c "${RASPIOS_QEMU_COMM}"
+}
+
+cleanup_network_bridge() {
+
+	sudo ip link del "${SIMULATOR_BRIDGE}"
+	docker network rm "${SIMULATOR_BRIDGE}"
+}
+
+cleanup_temp_files() {
+
+	rm -rf "${TEMP_RASPIOS_DIR}"
+}
+
+main() {
+
+	get_raspios_image
+	create_network_bridge
+	run_raspios_docker
+	cleanup_network_bridge
+	cleanup_temp_files
+}
+
+main
