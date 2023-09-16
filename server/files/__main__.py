@@ -2,35 +2,49 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 import subprocess
 import os.path
-import pulsectl
+import tempfile
+import shutil
+import threading
 
-MD_VOLUME_STEP = 0.1
+PLAY_LOOP = False
+PLAY_LOOP_LOCK = threading.Lock()
+MUSIC_PATH = f"/media"
+VOLUME_STEP=5
+
+def set_play_loop(val):
+    global PLAY_LOOP
+    with PLAY_LOOP_LOCK:
+        PLAY_LOOP = val
+
+def play_thread(to_play, event):
+    global PLAY_LOOP
+    killall()
+    set_play_loop(True)
+    got_first = False
+    for f in to_play:
+        with PLAY_LOOP_LOCK:
+            if not PLAY_LOOP:
+                break
+        with tempfile.NamedTemporaryFile(suffix=".flac", delete=False) as temp_file:
+            shutil.copy(os.path.join(MUSIC_PATH, f), temp_file.name)
+            if not got_first:
+                got_first = True
+                event.set()
+            proc = subprocess.Popen(["sndfile-play", temp_file.name])
+            proc.wait()
 
 def get_volume():
-    with pulsectl.Pulse('get_volume') as pulse:
-        sink = pulse.sink_list()[0]
-        return sink.volume.value_flat
+    return int(subprocess.check_output(["amixer", "sget", "'Digital',0"]).decode("utf-8").split("[")[1].split("%")[0])
 
 def set_volume(new_volume):
-    with pulsectl.Pulse('set_volume') as pulse:
-        sink = pulse.sink_list()[0]
-        pulse.volume_set_all_chans(sink, new_volume)
-
-def inc_volume(step):
-    curr_vol = get_volume()
-    if curr_vol < 1.0:
-        if curr_vol + step > 1.0:
-            set_volume(1.0)
-        else:
-            set_volume(curr_vol + step)
+    subprocess.call(["amixer", "-q", "sset", "'Digital',0", f"{new_volume}%"])
+    subprocess.call(["amixer", "sget", "'Digital',0"])
 
 def dec_volume(step):
-    curr_vol = get_volume()
-    if curr_vol > 0.0:
-        if curr_vol - step < 0.0:
-            set_volume(0.0)
-        else:
-            set_volume(curr_vol - step)
+    set_volume(max(0, get_volume() - VOLUME_STEP))
+
+def inc_volume(step):
+    set_volume(min(100, get_volume() + VOLUME_STEP))
 
 def split_path(path):
     res = []
@@ -45,11 +59,15 @@ def split_path(path):
     return res
 
 def killall():
-    subprocess.call(['pkill', '-9', 'melodeer-exec'])
-
-MUSIC_PATH = f"/home/pi/Music"
+    global PLAY_LOOP
+    subprocess.call(['pkill', '-9', 'sndfile-play'])
+    set_play_loop(False)
 
 class MelodeerHandler(BaseHTTPRequestHandler):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.timeout = 60
 
     def do_POST(self):
         content_length = int(self.headers['Content-Length'])
@@ -94,8 +112,10 @@ class MelodeerHandler(BaseHTTPRequestHandler):
             dec_volume(MD_VOLUME_STEP)
 
         if to_play:
-            killall()
-            subprocess.Popen(["/usr/local/bin/melodeer-exec", *list(map(lambda f: os.path.join(MUSIC_PATH, f), to_play))])
+            event = threading.Event()
+            thread = threading.Thread(target=play_thread, args=(to_play, event))
+            thread.start()
+            event.wait()
 
         # Process received JSON data
         response_json = {

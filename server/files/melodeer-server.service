@@ -1,0 +1,12 @@
+[Unit]
+Description=Melodeer Server
+After=network.target sound.target
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/melodeer-server/__main__.py
+Restart=always
+WorkingDirectory=/
+
+[Install]
+WantedBy=multi-user.target
+
